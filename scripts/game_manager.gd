@@ -4,10 +4,17 @@ var deck = []
 var player_hand = []
 var dealer_hand = []
 
+var player_money = 100
+var bet = 0
+
+var bet_input_regex = RegEx.new()
+var old_text = ""
+
 # Called when the node enters the scene tree for the first time.
 func _ready():
+	bet_input_regex.compile("^[0-9.]*$")
 	shuffle_deck()
-	start_game()
+	init_game()
 	connect_buttons()
 
 func shuffle_deck():
@@ -19,7 +26,37 @@ func shuffle_deck():
 			deck.append({"rank": rank, "suit": suit})
 	deck.shuffle()
 
+func init_game():
+	var reset_button_container = get_node("../MainPanel/MainVBox/ResetButtonContainer")
+	reset_button_container.visible = false
+	update_ui()
+	hide_buttons()
+	if (player_money == 0):
+		var player_money_label = get_node("../MainPanel/MainVBox/PlayerContainer/PlayerMoneyLabel")
+		player_money_label.text = "Out of Money! \n Please press the reset button." 
+		reset_button_container.visible = true
+	else:
+		show_bet()
+
+func hide_bet():
+	var bet_container = get_node("../MainPanel/MainVBox/BetContainer")
+	bet_container.visible = false
+
+func show_bet():
+	var bet_container = get_node("../MainPanel/MainVBox/BetContainer")
+	bet_container.visible = true
+	
+func hide_buttons():
+	var button_container = get_node("../MainPanel/MainVBox/ButtonsContainer")
+	button_container.visible = false
+
+func show_buttons():
+	var button_container = get_node("../MainPanel/MainVBox/ButtonsContainer")
+	button_container.visible = true
+	
 func start_game():
+	hide_bet()
+	show_buttons()
 	clear_card_containers()
 	player_hand = [draw_card(), draw_card()]
 	dealer_hand = [draw_card(), draw_card()]
@@ -30,8 +67,12 @@ func start_game():
 func connect_buttons():
 	var hit_button = get_node("../MainPanel/MainVBox/ButtonsContainer/HitButton")
 	var stand_button = get_node("../MainPanel/MainVBox/ButtonsContainer/StandButton")
+	var bet_button = get_node("../MainPanel/MainVBox/BetContainer/BetButton")
+	var reset_button = get_node("../MainPanel/MainVBox/ResetButtonContainer/TrueResetButton")
 	hit_button.pressed.connect(on_hit_pressed)
 	stand_button.pressed.connect(on_stand_pressed)
+	bet_button.pressed.connect(on_bet_pressed)
+	reset_button.pressed.connect(on_true_reset_pressed)
 
 func draw_card():
 	return deck.pop_back()
@@ -54,10 +95,17 @@ func calculate_score(hand):
 	return score
 
 func update_ui():
-	var player_score_label = get_node("../MainPanel/MainVBox/PlayerScoreLabel")
+	var player_score_label = get_node("../MainPanel/MainVBox/PlayerContainer/PlayerScoreLabel")
+	var player_money_label = get_node("../MainPanel/MainVBox/PlayerContainer/PlayerMoneyLabel")
 	var dealer_score_label = get_node("../MainPanel/MainVBox/DealerScoreLabel")
-	player_score_label.text = "Player Score: " + str(calculate_score(player_hand))
-	dealer_score_label.text = "Dealer Score: " + str(calculate_score(dealer_hand))
+	player_money_label.text = "Player Money: " + str(player_money)
+	if (calculate_score(player_hand) == 0):
+		player_score_label.text = ""
+	if (calculate_score(dealer_hand) == 0):
+		dealer_score_label.text = ""
+	else:
+		player_score_label.text = "Player Score: " + str(calculate_score(player_hand))
+		dealer_score_label.text = "Dealer Score: " + str(calculate_score(dealer_hand))
 
 func update_cards():
 	var player_container = get_node("../MainPanel/MainVBox/PlayerCardsContainer")
@@ -83,7 +131,6 @@ func create_card_texture(card):
 	
 	card_texture.custom_minimum_size = Vector2(100, 146)
 	card_texture.stretch_mode = TextureRect.StretchMode.STRETCH_SCALE
-	
 	
 	return card_texture
 
@@ -127,16 +174,12 @@ func check_winner():
 func game_over(result):
 	var result_label = get_node("../MainPanel/MainVBox/ResultLabel")
 	result_label.text = result
-	
-	var hit_button = get_node("../MainPanel/MainVBox/ButtonsContainer/HitButton")
-	var stand_button = get_node("../MainPanel/MainVBox/ButtonsContainer/StandButton")
-	hit_button.disabled = true
-	stand_button.disabled = true
-
-# Called every frame. 'delta' is the elapsed time since the previous frame.
-func _process(delta):
-	pass
-
+	if (result == "Player Wins!"):
+		player_money += 2*bet
+	elif (result == "It's a Tie!"):
+		player_money += bet
+	await get_tree().create_timer(3).timeout
+	_on_reset_button_pressed()
 
 func _on_reset_button_pressed():
 	player_hand.clear()
@@ -148,10 +191,37 @@ func _on_reset_button_pressed():
 	
 	var result_label = get_node("../MainPanel/MainVBox/ResultLabel")
 	result_label.text = ""
-	
-	var hit_button = get_node("../MainPanel/MainVBox/ButtonsContainer/HitButton")
-	var stand_button = get_node("../MainPanel/MainVBox/ButtonsContainer/StandButton")
-	hit_button.disabled = false
-	stand_button.disabled = false
-	
-	start_game()
+	bet = 0
+	init_game()
+
+func on_true_reset_pressed():
+	player_money = 100
+	_on_reset_button_pressed()
+
+func on_bet_pressed():
+	var bet_input = get_node("../MainPanel/MainVBox/BetContainer/BetInput")
+	handle_bet(bet_input.text)
+
+func _on_line_edit_text_changed(new_text: String) -> void:
+	var bet_input = get_node("../MainPanel/MainVBox/BetContainer/BetInput")
+	if bet_input_regex.search(new_text):
+		old_text = str(new_text)
+	else:
+		bet_input.text = old_text
+		bet_input.set_caret_column(bet_input.text.length())
+
+func _on_line_edit_text_submitted(new_text: String) -> void:
+	handle_bet(new_text)
+
+func handle_bet(bet_text: String):
+	var bet_error = get_node("../MainPanel/MainVBox/BetContainer/BetError")
+	if (bet_text.to_int() > player_money):
+		bet_error.visible = true
+		bet_error.text = "Bet exceeds player money"
+		await get_tree().create_timer(3).timeout
+		bet_error.visible = false
+		bet_error.text = ""
+	else:
+		bet = bet_text.to_int()
+		player_money -= bet
+		start_game()
